@@ -1,7 +1,7 @@
 # webdav2localdisk
 
-> 把 WebDAV 服务器映射成本地 Windows 驱动器，并让 `GetDriveType()` 返回
-> **`DRIVE_FIXED`** —— 在内核卷设备层级，把远程 WebDAV 存储伪装成本地固定磁盘。
+> 将 WebDAV 服务映射为本地 Windows 驱动器，`GetDriveType()` 返回 **`DRIVE_FIXED`**，
+> 在内核卷设备层将远程存储伪装成本地固定磁盘。
 
 [English](./README.md) | 中文
 
@@ -9,41 +9,45 @@
 
 ## 为什么需要它？
 
-Windows 上有些程序会拒绝在「网络驱动器」上运行，甚至连列出都不行。它们调用
-`GetDriveTypeW("X:\\")`，只要返回值不是 `DRIVE_FIXED`（典型本地磁盘）就直接退出。
-常见案例：
+一些 Windows 程序会拒绝在"网络驱动器"上运行 — 它们调用 `GetDriveTypeW("X:\\")`，
+只要返回不是 `DRIVE_FIXED`(3) 就直接退出。典型场景：
 
-- 把存档写在「本地盘」上的游戏
+- 存档必须写在"本地盘"上的游戏
 - 拒绝安装到网络路径的安装器
-- 索引工具、同步客户端、性能计数器
+- 索引/同步/性能工具
 - 自动跳过 `DRIVE_REMOTE` 的备份软件
 
-云 WebDAV 提供商（你的 NAS、Nextcloud、Synology Drive 的 WebDAV、
-`rclone serve webdav` 等）完全够用 —— *只要卷不被标成 "remote"*。
-`webdav2localdisk` 干的就是这个贴标签的活（原理见
-[PRINCIPLE.md](./docs/PRINCIPLE.md)），并把它接到一个真正能用的 WebDAV 客户端上。
+云 WebDAV（你的 NAS、Nextcloud、Synology Drive 的 WebDAV、`rclone serve webdav` 等）
+完全能承载这些数据——只要卷不被标成"remote"。本项目做的就是：用 WinFsp 空 VolumePrefix
+的 trick，让内核报告 `DRIVE_FIXED`，上面跑一个真正可用的 WebDAV 客户端 + GUI。
 
-## 能做什么 / 不能做什么
+## 截图
 
-✅ 把任意 WebDAV 服务器挂到一个 Windows 盘符上。  
-✅ 对所有 Win32 调用方（`GetDriveTypeW`、`GetVolumeInformationW` 等）返回
-   `DriveType == DRIVE_FIXED`。  
-✅ 可选的本地缓存层：热读快、写后批量刷盘。
-
-❌ **不是**安全绕过工具。它不提升权限，也不会把网络延迟藏起来 —— 任何真的去探你
-   吞吐量的程序都会看到 WebDAV 级的速度。  
-❌ **不是**取证规避工具。卷设备本身就是一个合法的 WinFsp 本地磁盘映像。所谓
-   "伪装" 只是设备类别标签，不是数据来源欺骗。
+```
+┌─────────────────────────────────────────┐
+│  webdav2localdisk          — □ ✕        │
+├─────────────────────────────────────────┤
+│  WebDAV Connection                      │
+│  URL: [https://dav.example.com/dav    ] │
+│  User: [alice          ] Pass: [*****] │
+│  Drive: [W: (free) ▼]  Cache: [......] │
+│        [ Mount ] [ Unmount ] [ Test  ]  │
+│  Status: Mounted on W: (DRIVE_FIXED)    │
+├─────────────────────────────────────────┤
+│  [OK] W: mounted — DRIVE_FIXED.        │
+│  GetDriveTypeW(W:\) == 3 (FIXED)       │
+│  ✅  PASS — The trick works!            │
+└─────────────────────────────────────────┘
+```
 
 ## 编译
 
 依赖：
 
 - Windows 10/11 x64
-- CMake ≥ 3.20
-- Visual Studio 2022 (MSVC) 或 clang-cl
-- [WinFsp 2023+](https://winfsp.dev/)（运行机器上也需要装 WinFsp 可再发行包）
-- OpenSSL（缓存层 SHA-1 用，不需要缓存可以删掉 `cache.cpp`）
+- CMake ≥ 3.21, Visual Studio 2022 (MSVC)
+- Qt 6.7+ (Widgets 模块)
+- [WinFsp 2023+](https://winfsp.dev/) (开发者 SDK + 可再发行包)
 
 ```bat
 git clone https://github.com/BlueFang/webdav2localdisk.git
@@ -52,61 +56,39 @@ cmake -B build -S .
 cmake --build build --config Release
 ```
 
-## 运行
-
-```bat
-:: 先装好 WinFsp 可再发行包（https://winfsp.dev/）
-
-webdav2localdisk.exe ^
-    --url   https://dav.example.com/dav ^
-    --user  alice ^
-    --pass  hunter2 ^
-    --drive W: ^
-    --cache "%LOCALAPPDATA%\webdav2localdisk\cache"
-```
-
-验证生效：
-
-```bat
-:: 期望输出: 3  (即 DRIVE_FIXED)
-powershell -NoProfile -Command "Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;static class W{[DllImport(\"kernel32\")]public static extern uint GetDriveType(string lpRootPathName);}'; [W]::GetDriveType('W:\')"
-```
-
-不用本项目、用 `net use W: \\server\share` 普通映射会得到 `4`（`DRIVE_REMOTE`）；
-用了本项目是 `3`（`DRIVE_FIXED`）。
+💡 GitHub Actions 每次 push 自动构建，到 **Actions** 页下最新的
+`Build (Windows)` workflow 里下载 artifact 即拿即用。
 
 ## 原理（一句话版）
 
-整个项目命门是 `fs_driver.cpp` 里的一行：调 `FspFileSystemCreate` 时，把
-**`VolumePrefix` 传空字符串 `""`**。WinFsp 用这个前缀判断——走 Multiple UNC
-Provider 网络栈（`DeviceType == FILE_DEVICE_NETWORK_FILE_SYSTEM`，
-`GetDriveType == DRIVE_REMOTE`）还是当本地普通盘挂（
-`DeviceType == FILE_DEVICE_DISK`，`GetDriveType == DRIVE_FIXED`）。其它字段都是
-装饰，只有前缀翻得动设备类型。
+命门在 `fs_driver.cpp` 里：
 
-完整推导、参考资料、逆向笔记见 **[`docs/PRINCIPLE.md`](./docs/PRINCIPLE.md)**。
+```c
+StringCchCopyW(params.Prefix, ..., L"");   // 空前缀 = 本地盘模式
+```
 
-## 状态
+`FspFileSystemCreate` 被调用时，`VolumePrefix` 为空 → WinFsp 走**本地盘**路径，
+创建的 device object 类型为 `FILE_DEVICE_DISK`。`GetDriveTypeW` 检查的正好是这个字段
+→ 返回 `DRIVE_FIXED`(3)。
 
-这是早期公开骨架。已完成的勾：
+如果前缀非空（比如 `"\\server\share"`），WinFsp 走 MUP 网络栈，device 类型变成
+`FILE_DEVICE_NETWORK_FILE_SYSTEM` → `GetDriveTypeW` 返回 `DRIVE_REMOTE`(4)。
+这就是所有常规 WebDAV 挂载的结果，也是本项目存在的理由。
 
-- [x] 配置 `VolumeParams` 强制返回 `DRIVE_FIXED`
-- [x] WinFsp 回调分发表
-- [x] 命令行解析 + 挂载生命周期（信号驱动卸载）
+完整推导见 **[`docs/PRINCIPLE.md`](./docs/PRINCIPLE.md)**。
 
-还没做（欢迎 PR）：
+## 状态 / 路线图
 
-- [ ] 完整的 WebDAV 动词映射（`PROPFIND`/`PUT`/`MOVE`/`COPY`/`MKCOL`）
-- [ ] 真正的 `cache.cpp`（目前是桩）
-- [ ] 鉴权：Basic + Digest
-- [ ] Inno Setup 安装包 + 签名构建
-- [ ] CI 矩阵（MSVC / clang-cl / x86 / x64）
-
-## 贡献
-
-PR 欢迎，尤其 WebDAV 协议层 —— 那是项目目前缺口最大的一块。请把 `VolumePrefix=""`
-当作神圣不变量：它就是定义本项目的单行代码。
+- [x] **DRIVE_FIXED 核心 trick** — fs_driver.cpp 里的空 VolumePrefix
+- [x] **完整 WebDAV 实现** — PROPFIND / GET / PUT / MKCOL / MOVE / DELETE
+- [x] **Qt GUI** — 填表挂载、一键测试 GetDriveType
+- [x] **内存目录缓存** — 避免反复 PROPFIND
+- [x] **GitHub Actions CI** — push 自动构建 exe
+- [ ] 本地磁盘文件缓存（目前仅内存缓存）
+- [ ] Digest / Bearer 认证（目前仅 Basic）
+- [ ] Inno Setup 安装包（含 WinFsp）
+- [ ] CI x86 目标
 
 ## License
 
-MIT —— 见 [`LICENSE`](./LICENSE)。
+MIT — 见 [`LICENSE`](./LICENSE)。

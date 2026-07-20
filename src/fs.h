@@ -1,52 +1,61 @@
 /*
  * webdav2localdisk — fs.h
  *
- * Public surfaces shared between the WinFsp mount core (fs_driver.c)
- * and the WebDAV protocol client (webdav_client.c). Internal header;
- * do not ship as part of a public API.
+ * Internal types shared between the WinFsp mount core (fs_driver.cpp)
+ * and the WebDAV protocol client (webdav_client.cpp).
  */
 #ifndef WDL_FS_H_
 #define WDL_FS_H_
 
+#include <atomic>
 #include <cstdint>
-#include <string>
+#include <map>
 #include <mutex>
+#include <string>
+#include <vector>
 
 #include <windows.h>
 
 namespace wdl {
 
+struct WebDavFile {
+  std::string  name;          /* relative path, POSIX-style separators */
+  bool         is_dir = false;
+  uint64_t     size  = 0;
+  uint64_t     mtime = 0;     /* Unix epoch seconds (converted to NT up front) */
+  uint32_t     attrs = 0;
+};
+
 struct WebDavCtx {
-  /* WebDAV endpoint */
-  std::wstring  server_url;
+  /* --- WebDAV endpoint ----------------------------------------------- */
+  std::wstring  server_url;            /* e.g. https://dav.example.com/dav */
   std::wstring  username;
   std::wstring  password;
 
-  /* Reported volume space (bytes). */
-  std::uint64_t total = 1ull << 40; /* 1 TiB default phantom value */
-  std::uint64_t free  = 1ull << 39;
+  /* --- Reported volume size (queried from server once on mount) ----- */
+  uint64_t      total = 1ull << 40;     /* 1 TiB default phantom value */
+  uint64_t      free  = 1ull << 39;
 
-  /* Local cache root, if any. Empty => uncached (works but slower). */
-  std::string   cache_dir;
+  /* --- Local on-disk cache root ------------------------------------- */
+  std::string   cache_dir;              /* empty => disabled */
 
-  /* Serial for the volume (GetVolumeInformationW). */
-  std::uint32_t serial = 0x2D774C44; /* 'wD2L' in little-endian */
+  /* --- Volume serial shown to GetVolumeInformationW ----------------- */
+  uint32_t      serial   = 0x2D774C44;  /* 'wD2L' little-endian */
+  std::wstring  label    = L"webdav2localdisk";
 
-  std::mutex    mu;   /* guards members above from concurrent transacts */
+  /* --- Runtime state, owned by webdav_client.cpp -------------------- */
+  std::mutex    mu;
+  uint64_t      creation_time = 0;     /* FILETIME epoch (hecto-ns) */
 };
 
 struct MountOptions {
-  /* Drive letter to mount on, e.g. "W:". Must be free & untaken. */
-  std::wstring mount_point;
-
-  /* VolumeCreationTime (FILETIME epoch). 0 => "right now" on mount. */
-  LARGE_INTEGER creation_time{0};
+  std::wstring mount_point;            /* e.g. L"W:" */
+  uint64_t     creation_time = 0;
 };
 
-/* Drives-device-type the volume reports.Implemented in fs_driver.c. */
 bool FsDriverMount(const MountOptions &opt, WebDavCtx *ctx,
-                   FSP_FILE_SYSTEM **out_fs);
-void FsDriverUnmount(FSP_FILE_SYSTEM *fs);
+                   void **out_fs_handle);
+void FsDriverUnmount(void *fs_handle);
 
 }  // namespace wdl
 

@@ -6,11 +6,18 @@ Release/
 x64/
 x86/
 
+# Qt generated
+moc_*.cpp
+ui_*.h
+moc_*.h
+qrc_*.cpp
+*.user
+moc_predefs.h
+
 # IDE
 .vs/
 .vscode/
 .idea/
-*.user
 *.suo
 *.pdb
 *.ilk
@@ -28,3 +35,7 @@ cmake_install.cmake
 
 # Cache
 *.local-cache
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,57 @@
+name: Build (Windows)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64]
+        build_type: [Release]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt 6
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.*'
+          arch: win64_msvc2022_64
+          modules: qtbase
+
+      - name: Install WinFsp
+        shell: cmd
+        run: |
+          curl -L -o winfsp.msi https://github.com/winfsp/winfsp/releases/download/v2.1/winfsp-2.1.24255.msi
+          msiexec /i winfsp.msi /qn /norestart
+          dir "C:\Program Files (x86)\WinFsp\lib"
+
+      - name: Configure
+        shell: cmd
+        run: |
+          cmake -B build -S . ^
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} ^
+            -DWINFSP_ROOT="C:/Program Files (x86)/WinFsp"
+
+      - name: Build
+        shell: cmd
+        run: cmake --build build --config ${{ matrix.build_type }} --parallel
+
+      - name: Deploy Qt
+        shell: cmd
+        run: |
+          dir build\${{ matrix.build_type }}\webdav2localdisk.exe
+          echo "--- windeployqt was already run as POST_BUILD step ---"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: webdav2localdisk-${{ matrix.arch }}-${{ matrix.build_type }}
+          path: build/${{ matrix.build_type }}/webdav2localdisk.exe
+          if-no-files-found: error
