@@ -19,18 +19,13 @@ jobs:
           $base = "https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_683/qt6_683/qt.qt6.683.win64_msvc2022_64"
           $dl = "$env:RUNNER_TEMP\qt_pkgs"
           mkdir $dl -Force
-
           $pkgs = @(
             "6.8.3-0-202503201308qtbase-Windows-Windows_11_23H2-MSVC2022-Windows-Windows_11_23H2-X86_64.7z",
             "6.8.3-0-202503201308qttools-Windows-Windows_11_23H2-MSVC2022-Windows-Windows_11_23H2-X86_64.7z"
           )
           foreach ($p in $pkgs) {
-            $url = "$base/$p"
-            Write-Host "Downloading $url"
-            Invoke-WebRequest -Uri $url -OutFile "$dl\$p" -ErrorAction Stop
+            Invoke-WebRequest -Uri "$base/$p" -OutFile "$dl\$p" -ErrorAction Stop
           }
-
-          Write-Host "Extracting to C:\Qt\6.8.3\msvc2022_64"
           mkdir C:\Qt\6.8.3\msvc2022_64 -Force
           foreach ($p in $pkgs) {
             & "$env:ProgramFiles\7-Zip\7z.exe" x "$dl\$p" -oC:\Qt\6.8.3\msvc2022_64 -y -bso0
@@ -42,7 +37,7 @@ jobs:
         run: |
           $qtRoot = "C:\Qt\6.8.3\msvc2022_64"
           if (!(Test-Path "$qtRoot\bin\qmake.exe")) {
-            $qmake = Get-ChildItem -Path C:\Qt -Recurse -Filter qmake.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+            $qmake = Get-ChildItem C:\Qt -Recurse -Filter qmake.exe -ErrorAction SilentlyContinue | Select-Object -First 1
             if (-not $qmake) { Write-Error "Qt not found!"; exit 1 }
             $qtRoot = $qmake.Directory.FullName
           }
@@ -52,20 +47,48 @@ jobs:
       - name: Install WinFsp
         shell: pwsh
         run: |
-          $url = "https://github.com/winfsp/winfsp/releases/download/v2.1/winfsp-2.1.25156.msi"
-          Invoke-WebRequest -Uri $url -OutFile winfsp.msi
+          Invoke-WebRequest -Uri "https://github.com/winfsp/winfsp/releases/download/v2.1/winfsp-2.1.25156.msi" -OutFile winfsp.msi
           msiexec /i winfsp.msi /qn /norestart
           Start-Sleep -Seconds 10
-          # Debug: find the actual library location
-          Write-Host "=== WinFsp directory tree ==="
-          dir "C:\Program Files (x86)\WinFsp" -Recurse 2>$null | Select-Object -First 30
-          # Try to find winfsp-x64.lib
-          $lib = Get-ChildItem -Path "C:\Program Files (x86)\WinFsp" -Recurse -Filter "winfsp-x64.lib" -ErrorAction SilentlyContinue | Select-Object -First 1
+          # Full tree dump
+          Write-Host "=== Full WinFsp tree ==="
+          Get-ChildItem "C:\Program Files (x86)\WinFsp" -Recurse -Name | ForEach-Object { Write-Host $_ }
+          # Try to find lib
+          $lib = Get-ChildItem "C:\Program Files (x86)\WinFsp" -Recurse -Filter "winfsp-x64.lib" -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($lib) {
-            echo "WINFSP_LIB=$($lib.Directory.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
-            Write-Host "Found WinFsp lib at: $($lib.Directory.FullName)"
+            echo "WINFSP_LIB_DIR=$($lib.Directory.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+            Write-Host "Found lib: $($lib.FullName)"
           } else {
-            Write-Error "WinFsp lib not found"
+            Write-Host "No .lib found; generating import library from DLL..."
+            $dll = Get-ChildItem "C:\Program Files (x86)\WinFsp" -Recurse -Filter "winfsp-x64.dll" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $dll) { Write-Error "DLL not found!"; exit 1 }
+            $libDir = "$env:RUNNER_TEMP\winfsp_lib"
+            mkdir $libDir -Force
+            $defFile = "$env:RUNNER_TEMP\winfsp.def"
+            "EXPORTS" | Out-File $defFile -Encoding ascii
+            & dumpbin /exports "$($dll.FullName)" | Select-String '^\s+\d+\s+[0-9A-F]+\s+[0-9A-F]+\s+(\S+)' | ForEach-Object {
+              $n = $_.Matches.Groups[1].Value
+              if ($n -notmatch '^(__IMPORT|NULL_THUNK)') { Add-Content $defFile "  $n" }
+            }
+            Write-Host "DEF file has $((Get-Content $defFile | Measure-Object -Line).Lines - 1) exports"
+            & lib /machine:x64 "/def:$defFile" "/out:$libDir\winfsp-x64.lib"
+            echo "WINFSP_LIB_DIR=$libDir" | Out-File -FilePath $env:GITHUB_ENV -Append
+            Write-Host "Import lib generated"
+          }
+          # Find or download headers
+          $inc = Get-ChildItem "C:\Program Files (x86)\WinFsp" -Recurse -Filter "winfsp.h" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($inc) {
+            echo "WINFSP_INC_DIR=$($inc.Directory.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+            Write-Host "Found inc: $($inc.Directory.FullName)"
+          } else {
+            $incDir = "$env:RUNNER_TEMP\winfsp_inc\winfsp"
+            mkdir $incDir -Force
+            $base = "https://raw.githubusercontent.com/winfsp/winfsp/v2.1/inc/winfsp"
+            Invoke-WebRequest "$base/winfsp.h" -OutFile "$incDir\winfsp.h"
+            Invoke-WebRequest "$base/launch.h"  -OutFile "$incDir\launch.h"
+            Invoke-WebRequest "$base/fsctl.h"   -OutFile "$incDir\fsctl.h"
+            echo "WINFSP_INC_DIR=$($incDir | Split-Path -Parent)" | Out-File -FilePath $env:GITHUB_ENV -Append
+            Write-Host "Headers downloaded"
           }
 
       - name: Configure
@@ -74,7 +97,9 @@ jobs:
           cmake -B build -S . `
             -DCMAKE_BUILD_TYPE=Release `
             "-DCMAKE_PREFIX_PATH=$env:QT_ROOT" `
-            "-DWINFSP_ROOT=$env:WINFSP_LIB/../.."
+            "-DWINFSP_ROOT=" `
+            "-DWINFSP_INC_DIR=$env:WINFSP_INC_DIR" `
+            "-DWINFSP_LIB_DIR=$env:WINFSP_LIB_DIR"
 
       - name: Build
         shell: pwsh

@@ -5,18 +5,21 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ----------------------------------------------------------------------
-# WinFsp
+# WinFsp  ---  supports custom INC/LIB dirs for CI where SDK may be
+#              separated from the MSI install root
 # ----------------------------------------------------------------------
 set(WINFSP_ROOT "C:/Program Files (x86)/WinFsp" CACHE PATH "WinFsp install root")
+set(WINFSP_INC_DIR "${WINFSP_ROOT}/inc" CACHE PATH "WinFsp include directory")
+set(WINFSP_LIB_DIR "${WINFSP_ROOT}/lib" CACHE PATH "WinFsp library directory")
 
 if(WIN32 AND CMAKE_SIZEOF_VOID_P EQUAL 8)
-  set(WINFSP_LIB "${WINFSP_ROOT}/lib/winfsp-x64.lib")
+  set(WINFSP_LIB "${WINFSP_LIB_DIR}/winfsp-x64.lib")
 else()
-  set(WINFSP_LIB "${WINFSP_ROOT}/lib/winfsp-x86.lib")
+  set(WINFSP_LIB "${WINFSP_LIB_DIR}/winfsp-x86.lib")
 endif()
 
 add_library(winfsp INTERFACE)
-target_include_directories(winfsp SYSTEM INTERFACE "${WINFSP_ROOT}/inc")
+target_include_directories(winfsp SYSTEM INTERFACE "${WINFSP_INC_DIR}")
 target_link_libraries(winfsp INTERFACE "${WINFSP_LIB}")
 
 # ----------------------------------------------------------------------
@@ -50,14 +53,13 @@ target_include_directories(webdav2localdisk PRIVATE src)
 target_link_libraries(webdav2localdisk PRIVATE wdlcore Qt6::Widgets)
 target_compile_definitions(webdav2localdisk PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN)
 
-# MSVC: use multithreaded CRT for easy distribution
 if(MSVC)
   set_property(TARGET wdlcore webdav2localdisk PROPERTY
     MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 
 # ----------------------------------------------------------------------
-# Deploy Qt DLLs next to the exe (for local / GH Actions artifact)
+# Deploy Qt DLLs next to the exe
 # ----------------------------------------------------------------------
 if(WIN32)
   find_program(WINDEPLOYQT windeployqt HINTS "${Qt6_DIR}/../../../bin" REQUIRED)
