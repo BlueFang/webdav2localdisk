@@ -13,22 +13,39 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Qt 6 (aqt)
+      - name: Download & unpack Qt 6.8.3 MSVC 2022
         shell: pwsh
         run: |
-          pip install aqtinstall
-          aqt install-qt windows desktop 6.8.3 win64_msvc2022_64 `
-            --modules qtbase qttools `
-            --outputdir C:\Qt
-          Write-Host "--- Qt install done ---"
-          dir C:\Qt -Recurse -Filter qmake.exe 2>$null | Select-Object -First 3
+          $base = "https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_683/qt.qt6.683.win64_msvc2022_64"
+          $dl = "$env:RUNNER_TEMP\qt_pkgs"
+          mkdir $dl -Force
+
+          $pkgs = @(
+            "6.8.3-0-202510240516qtbase-Windows-Windows_10_22H2-MSVC2022-Windows-Windows_10_22H2-X86_64.7z",
+            "6.8.3-0-202510240516qttools-Windows-Windows_10_22H2-MSVC2022-Windows-Windows_10_22H2-X86_64.7z"
+          )
+          foreach ($p in $pkgs) {
+            $url = "$base/$p"
+            Write-Host "Downloading $url"
+            Invoke-WebRequest -Uri $url -OutFile "$dl\$p" -ErrorAction Stop
+          }
+
+          Write-Host "Extracting to C:\Qt\6.8.3\msvc2022_64"
+          mkdir C:\Qt\6.8.3\msvc2022_64 -Force
+          foreach ($p in $pkgs) {
+            & "$env:ProgramFiles\7-Zip\7z.exe" x "$dl\$p" -oC:\Qt\6.8.3\msvc2022_64 -y -bso0
+          }
+          Write-Host "Qt unpacked OK"
 
       - name: Find Qt
         shell: pwsh
         run: |
-          $qmake = Get-ChildItem -Path C:\Qt -Recurse -Filter qmake.exe -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $qmake) { Write-Error "Qt qmake not found!"; exit 1 }
-          $qtRoot = $qmake.Directory.FullName
+          $qtRoot = "C:\Qt\6.8.3\msvc2022_64"
+          if (!(Test-Path "$qtRoot\bin\qmake.exe")) {
+            $qmake = Get-ChildItem -Path C:\Qt -Recurse -Filter qmake.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $qmake) { Write-Error "Qt not found!"; exit 1 }
+            $qtRoot = $qmake.Directory.FullName
+          }
           Write-Host "QT_ROOT=$qtRoot"
           echo "QT_ROOT=$qtRoot" | Out-File -FilePath $env:GITHUB_ENV -Append
 
@@ -38,9 +55,7 @@ jobs:
           Invoke-WebRequest -Uri "https://github.com/winfsp/winfsp/releases/download/v2.1/winfsp-2.1.24255.msi" -OutFile winfsp.msi
           msiexec /i winfsp.msi /qn /norestart
           Start-Sleep -Seconds 8
-          if (Test-Path "C:\Program Files (x86)\WinFsp\lib\winfsp-x64.lib") {
-            Write-Host "WinFsp OK"
-          } else {
+          if (!(Test-Path "C:\Program Files (x86)\WinFsp\lib\winfsp-x64.lib")) {
             Write-Error "WinFsp lib not found"
           }
 
