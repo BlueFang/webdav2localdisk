@@ -55,8 +55,16 @@ jobs:
           $url = "https://github.com/winfsp/winfsp/releases/download/v2.1/winfsp-2.1.25156.msi"
           Invoke-WebRequest -Uri $url -OutFile winfsp.msi
           msiexec /i winfsp.msi /qn /norestart
-          Start-Sleep -Seconds 8
-          if (!(Test-Path "C:\Program Files (x86)\WinFsp\lib\winfsp-x64.lib")) {
+          Start-Sleep -Seconds 10
+          # Debug: find the actual library location
+          Write-Host "=== WinFsp directory tree ==="
+          dir "C:\Program Files (x86)\WinFsp" -Recurse 2>$null | Select-Object -First 30
+          # Try to find winfsp-x64.lib
+          $lib = Get-ChildItem -Path "C:\Program Files (x86)\WinFsp" -Recurse -Filter "winfsp-x64.lib" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($lib) {
+            echo "WINFSP_LIB=$($lib.Directory.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+            Write-Host "Found WinFsp lib at: $($lib.Directory.FullName)"
+          } else {
             Write-Error "WinFsp lib not found"
           }
 
@@ -66,7 +74,7 @@ jobs:
           cmake -B build -S . `
             -DCMAKE_BUILD_TYPE=Release `
             "-DCMAKE_PREFIX_PATH=$env:QT_ROOT" `
-            "-DWINFSP_ROOT=C:/Program Files (x86)/WinFsp"
+            "-DWINFSP_ROOT=$env:WINFSP_LIB/../.."
 
       - name: Build
         shell: pwsh
