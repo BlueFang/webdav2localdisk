@@ -16,13 +16,13 @@ jobs:
       - name: Download & unpack Qt 6.8.3 MSVC 2022
         shell: pwsh
         run: |
-          $base = "https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_683/qt.qt6.683.win64_msvc2022_64"
+          $base = "https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_683/qt6_683/qt.qt6.683.win64_msvc2022_64"
           $dl = "$env:RUNNER_TEMP\qt_pkgs"
           mkdir $dl -Force
 
           $pkgs = @(
-            "6.8.3-0-202510240516qtbase-Windows-Windows_10_22H2-MSVC2022-Windows-Windows_10_22H2-X86_64.7z",
-            "6.8.3-0-202510240516qttools-Windows-Windows_10_22H2-MSVC2022-Windows-Windows_10_22H2-X86_64.7z"
+            "6.8.3-0-202503201308qtbase-Windows-Windows_11_23H2-MSVC2022-Windows-Windows_11_23H2-X86_64.7z",
+            "6.8.3-0-202503201308qttools-Windows-Windows_11_23H2-MSVC2022-Windows-Windows_11_23H2-X86_64.7z"
           )
           foreach ($p in $pkgs) {
             $url = "$base/$p"
