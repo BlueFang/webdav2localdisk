@@ -13,36 +13,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download Qt 6.7.3 MSVC 2022 prebuilt
+      - name: Install Qt 6 (aqt)
         shell: pwsh
         run: |
-          $base = "https://download.qt.io/official_releases/qt/6.7/6.7.3"
-          $pkgs = @("qtbase-everywhere-src-6.7.3.zip")
-          # Use the precompiled MSVC binaries; Qt ships them via the online installer repo
-          # Direct approach: use aqt with correct mirror
           pip install aqtinstall
-          # List available versions to find correct module names
-          aqt list-qt windows desktop 2>&1 | Select-String "6.7" | Select-Object -First 10
-          # Try with explicit modules
-          aqt install-qt windows desktop 6.7.3 win64_msvc2022_64 `
+          aqt install-qt windows desktop 6.8.3 win64_msvc2022_64 `
             --modules qtbase qttools `
-            --outputdir C:\Qt 2>&1
-          Write-Host "--- Qt install done, listing ---"
+            --outputdir C:\Qt
+          Write-Host "--- Qt install done ---"
           dir C:\Qt -Recurse -Filter qmake.exe 2>$null | Select-Object -First 3
 
       - name: Find Qt
         shell: pwsh
         run: |
           $qmake = Get-ChildItem -Path C:\Qt -Recurse -Filter qmake.exe -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $qmake) {
-            Write-Host "Trying alternative: check Chocolatey"
-            choco install qt6 --version 6.7.3 -y --no-progress --params "/MSVC2022_64" 2>&1 | Out-Null
-            $qmake = Get-ChildItem -Path C:\Qt -Recurse -Filter qmake.exe -ErrorAction SilentlyContinue | Select-Object -First 1
-          }
-          if (-not $qmake) {
-            Write-Error "Qt not found after all attempts!"
-            exit 1
-          }
+          if (-not $qmake) { Write-Error "Qt qmake not found!"; exit 1 }
           $qtRoot = $qmake.Directory.FullName
           Write-Host "QT_ROOT=$qtRoot"
           echo "QT_ROOT=$qtRoot" | Out-File -FilePath $env:GITHUB_ENV -Append
@@ -57,7 +42,6 @@ jobs:
             Write-Host "WinFsp OK"
           } else {
             Write-Error "WinFsp lib not found"
-            dir "C:\Program Files (x86)\WinFsp" -Recurse
           }
 
       - name: Configure
