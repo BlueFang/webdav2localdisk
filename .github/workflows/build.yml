@@ -52,7 +52,7 @@ jobs:
       - name: Install WinFsp
         shell: pwsh
         run: |
-          $url = "https://github.com/winfsp/winfsp/releases/download/v2.2/winfsp-2.2.26183.msi"
+          $url = "https://github.com/winfsp/winfsp/releases/download/v2.1/winfsp-2.1.25156.msi"
           Invoke-WebRequest -Uri $url -OutFile winfsp.msi
           msiexec /i winfsp.msi /qn /norestart
           Start-Sleep -Seconds 8
