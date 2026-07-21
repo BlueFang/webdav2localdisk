@@ -18,8 +18,10 @@
  */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <ntstatus.h>
 #include <strsafe.h>
 #include <winfsp/winfsp.h>
+#include <winfsp/winfsp_fsctl.h>
 
 #include "fs.h"
 #include "webdav_client.h"
@@ -50,11 +52,11 @@ bool FsDriverMount(const MountOptions &opt, WebDavCtx *cfg,
   p.FlushAndPurgeOnCleanup  = 1;
 
   FSP_FILE_SYSTEM *fs = nullptr;
-  NTSTATUS st = ::FspFileSystemCreate(L"" WIDEN(WINFSP_DEVICE_NAME),
+  NTSTATUS st = ::FspFileSystemCreate(FSP_FSCTL_DISK_DEVICE_NAME,
                                       &p, &g_kWdlFsInterface, &fs);
   if (st != STATUS_SUCCESS) { DavRuntimeDestroy(rt); return false; }
 
-  ::FspFileSystemSetUserContext(fs, rt);
+  fs->UserContext = rt;
 
   if (opt.mount_point.empty()) {
     ::FspFileSystemDelete(fs); DavRuntimeDestroy(rt); return false;
@@ -74,7 +76,7 @@ bool FsDriverMount(const MountOptions &opt, WebDavCtx *cfg,
 void FsDriverUnmount(void *fs_handle) {
   if (!fs_handle) return;
   auto *fs = static_cast<FSP_FILE_SYSTEM *>(fs_handle);
-  auto *rt = static_cast<DavRuntime *>(::FspFileSystemGetUserContext(fs));
+  auto *rt = static_cast<DavRuntime *>(fs->UserContext);
   ::FspFileSystemStopDispatcher(fs);
   ::FspFileSystemDelete(fs);
   DavRuntimeDestroy(rt);

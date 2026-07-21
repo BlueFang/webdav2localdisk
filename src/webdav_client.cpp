@@ -17,6 +17,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <winhttp.h>
+#include <wincrypt.h>
 #include <winfsp/winfsp.h>
 
 #include <algorithm>

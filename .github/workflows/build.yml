@@ -18,12 +18,9 @@ jobs:
         run: |
           $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
           if (-not $vs) { $vs = "${env:ProgramFiles}\Microsoft Visual Studio\2022\Enterprise" }
-          Write-Host "VS: $vs"
           Import-Module "$vs\Common7\Tools\Microsoft.VisualStudio.DevShell.dll" -ErrorAction Stop
           Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments "-arch=amd64" 2>$null
-          # Verify tools
-          Get-Command dumpbin | Format-Table Name,Source
-          Get-Command lib | Format-Table Name,Source
+          Get-Command dumpbin,lib -ErrorAction SilentlyContinue | Format-Table Name,Source
 
       - name: Download & unpack Qt 6.8.3 MSVC 2022
         shell: pwsh
@@ -31,16 +28,15 @@ jobs:
           $base = "https://download.qt.io/online/qtsdkrepository/windows_x86/desktop/qt6_683/qt6_683/qt.qt6.683.win64_msvc2022_64"
           $dl = "$env:RUNNER_TEMP\qt_pkgs"
           mkdir $dl -Force
-          $pkgs = @(
+          @(
             "6.8.3-0-202503201308qtbase-Windows-Windows_11_23H2-MSVC2022-Windows-Windows_11_23H2-X86_64.7z",
             "6.8.3-0-202503201308qttools-Windows-Windows_11_23H2-MSVC2022-Windows-Windows_11_23H2-X86_64.7z"
-          )
-          foreach ($p in $pkgs) {
-            Invoke-WebRequest -Uri "$base/$p" -OutFile "$dl\$p" -ErrorAction Stop
+          ) | ForEach-Object {
+            Invoke-WebRequest -Uri "$base/$_" -OutFile "$dl\$_" -ErrorAction Stop
           }
           mkdir C:\Qt\6.8.3\msvc2022_64 -Force
-          foreach ($p in $pkgs) {
-            & "$env:ProgramFiles\7-Zip\7z.exe" x "$dl\$p" -oC:\Qt\6.8.3\msvc2022_64 -y -bso0
+          Get-ChildItem $dl -Filter *.7z | ForEach-Object {
+            & "$env:ProgramFiles\7-Zip\7z.exe" x "$($_.FullName)" -oC:\Qt\6.8.3\msvc2022_64 -y -bso0
           }
           Write-Host "Qt unpacked OK"
 
@@ -59,7 +55,6 @@ jobs:
       - name: Install WinFsp
         shell: pwsh
         run: |
-          # Re-init VS env in this step
           $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
           if (-not $vs) { $vs = "${env:ProgramFiles}\Microsoft Visual Studio\2022\Enterprise" }
           Import-Module "$vs\Common7\Tools\Microsoft.VisualStudio.DevShell.dll" -ErrorAction Stop
@@ -69,45 +64,32 @@ jobs:
           msiexec /i winfsp.msi /qn /norestart
           Start-Sleep -Seconds 10
 
-          Write-Host "=== Full WinFsp tree ==="
-          Get-ChildItem "C:\Program Files (x86)\WinFsp" -Recurse -Name | ForEach-Object { Write-Host $_ }
-
-          $lib = Get-ChildItem "C:\Program Files (x86)\WinFsp" -Recurse -Filter "winfsp-x64.lib" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($lib) {
-            echo "WINFSP_LIB_DIR=$($lib.Directory.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
-            Write-Host "Found lib: $($lib.FullName)"
-          } else {
-            Write-Host "No .lib; generating import library from DLL..."
-            $dll = Get-ChildItem "C:\Program Files (x86)\WinFsp" -Recurse -Filter "winfsp-x64.dll" -ErrorAction SilentlyContinue | Select-Object -First 1
-            if (-not $dll) { Write-Error "DLL not found!"; exit 1 }
-            $libDir = "$env:RUNNER_TEMP\winfsp_lib"
-            mkdir $libDir -Force
-            $defFile = "$env:RUNNER_TEMP\winfsp.def"
-            "EXPORTS" | Out-File $defFile -Encoding ascii
-            $exports = & dumpbin /exports "$($dll.FullName)" 2>&1 | Select-String '^\s+\d+\s+[0-9A-F]+\s+[0-9A-F]+\s+(\S+)' | ForEach-Object {
-              $n = $_.Matches.Groups[1].Value
-              if ($n -notmatch '^(__IMPORT|NULL_THUNK)') { Add-Content $defFile "  $n"; Write-Host "  + $n" }
-            }
-            Write-Host "DEF file exports: $((Get-Content $defFile | Measure-Object -Line).Lines - 1)"
-            & lib /machine:x64 "/def:$defFile" "/out:$libDir\winfsp-x64.lib"
-            echo "WINFSP_LIB_DIR=$libDir" | Out-File -FilePath $env:GITHUB_ENV -Append
-            Write-Host "Import lib generated"
+          # Download WinFsp SDK headers (MSI lacks inc/ directory)
+          $incDir = "$env:RUNNER_TEMP\winfsp_inc\winfsp"
+          mkdir $incDir -Force
+          $base = "https://raw.githubusercontent.com/winfsp/winfsp/v2.1/inc/winfsp"
+          @("winfsp.h", "winfsp_fsctl.h", "launch.h") | ForEach-Object {
+            Invoke-WebRequest "$base/$_" -OutFile "$incDir\$_"
           }
+          Write-Host "Headers downloaded to $incDir"
+          echo "WINFSP_INC_DIR=$($incDir | Split-Path -Parent)" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-          $inc = Get-ChildItem "C:\Program Files (x86)\WinFsp" -Recurse -Filter "winfsp.h" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($inc) {
-            echo "WINFSP_INC_DIR=$($inc.Directory.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
-            Write-Host "Found inc: $($inc.Directory.FullName)"
-          } else {
-            $incDir = "$env:RUNNER_TEMP\winfsp_inc\winfsp"
-            mkdir $incDir -Force
-            $base = "https://raw.githubusercontent.com/winfsp/winfsp/v2.1/inc/winfsp"
-            @("winfsp.h","launch.h","fsctl.h") | ForEach-Object {
-              Invoke-WebRequest "$base/$_" -OutFile "$incDir\$_"
-            }
-            echo "WINFSP_INC_DIR=$($incDir | Split-Path -Parent)" | Out-File -FilePath $env:GITHUB_ENV -Append
-            Write-Host "Headers downloaded"
+          # Generate import library from DLL (MSI lacks lib/ directory)
+          $dll = Get-ChildItem "C:\Program Files (x86)\WinFsp" -Recurse -Filter "winfsp-x64.dll" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $dll) { Write-Error "DLL not found!"; exit 1 }
+          $libDir = "$env:RUNNER_TEMP\winfsp_lib"
+          mkdir $libDir -Force
+          $defFile = "$env:RUNNER_TEMP\winfsp.def"
+          "EXPORTS" | Out-File $defFile -Encoding ascii
+          & dumpbin /exports "$($dll.FullName)" 2>&1 | Select-String '^\s+\d+\s+[0-9A-F]+\s+[0-9A-F]+\s+(\S+)' | ForEach-Object {
+            $n = $_.Matches.Groups[1].Value
+            if ($n -notmatch '^(__IMPORT|NULL_THUNK)') { Add-Content $defFile "  $n" }
           }
+          $exportCount = (Get-Content $defFile | Measure-Object -Line).Lines - 1
+          Write-Host "DEF: $exportCount exports"
+          & lib /machine:x64 "/def:$defFile" "/out:$libDir\winfsp-x64.lib"
+          echo "WINFSP_LIB_DIR=$libDir" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "Import lib generated"
 
       - name: Configure
         shell: pwsh

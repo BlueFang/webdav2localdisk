@@ -36,7 +36,7 @@ add_library(wdlcore STATIC
   src/webdav_client.cpp
 )
 target_include_directories(wdlcore PUBLIC src)
-target_link_libraries(wdlcore PUBLIC winfsp)
+target_link_libraries(wdlcore PUBLIC winfsp crypt32)
 target_compile_definitions(wdlcore PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN)
 if(MSVC)
   target_compile_options(wdlcore PRIVATE /W4 /permissive-)
