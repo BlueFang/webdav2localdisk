@@ -9,49 +9,52 @@ on:
 jobs:
   build:
     runs-on: windows-2022
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [x64]
-        build_type: [Release]
+    env:
+      QT_VER: "6.7.3"
+      QT_ARCH: "win64_msvc2022_64"
+      QT_DIR: "${{ github.workspace }}/Qt"
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Qt 6
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: '6.7.*'
-          arch: win64_msvc2022_64
-          modules: qtbase
+      - name: Install Qt 6 via aqt
+        shell: pwsh
+        run: |
+          pip install aqtinstall
+          aqt install-qt windows desktop $env:QT_VER $env:QT_ARCH `
+            --outputdir "$env:QT_DIR"
+          echo "Qt installed to: $env:QT_DIR"
+          dir "$env:QT_DIR"
 
       - name: Install WinFsp
-        shell: cmd
+        shell: pwsh
         run: |
-          curl -L -o winfsp.msi https://github.com/winfsp/winfsp/releases/download/v2.1/winfsp-2.1.24255.msi
+          Invoke-WebRequest -Uri "https://github.com/winfsp/winfsp/releases/download/v2.1/winfsp-2.1.24255.msi" `
+            -OutFile winfsp.msi
           msiexec /i winfsp.msi /qn /norestart
+          Start-Sleep -Seconds 5
           dir "C:\Program Files (x86)\WinFsp\lib"
 
       - name: Configure
-        shell: cmd
+        shell: pwsh
         run: |
-          cmake -B build -S . ^
-            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} ^
+          $qt_root = (Get-ChildItem "$env:QT_DIR\$env:QT_VER\$env:QT_ARCH" -Directory | Select-Object -First 1).FullName
+          if (-not $qt_root) { $qt_root = "$env:QT_DIR\$env:QT_VER\$env:QT_ARCH" }
+          Write-Host "Qt root: $qt_root"
+          cmake -B build -S . `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_PREFIX_PATH="$qt_root" `
             -DWINFSP_ROOT="C:/Program Files (x86)/WinFsp"
 
       - name: Build
-        shell: cmd
-        run: cmake --build build --config ${{ matrix.build_type }} --parallel
-
-      - name: Deploy Qt
-        shell: cmd
-        run: |
-          dir build\${{ matrix.build_type }}\webdav2localdisk.exe
-          echo "--- windeployqt was already run as POST_BUILD step ---"
+        shell: pwsh
+        run: cmake --build build --config Release --parallel
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: webdav2localdisk-${{ matrix.arch }}-${{ matrix.build_type }}
-          path: build/${{ matrix.build_type }}/webdav2localdisk.exe
+          name: webdav2localdisk-x64-Release
+          path: |
+            build/Release/webdav2localdisk.exe
+            build/Release/*.dll
           if-no-files-found: error
