@@ -62,7 +62,7 @@ bool FsDriverMount(const MountOptions &opt, WebDavCtx *cfg,
   FSP_FILE_SYSTEM *fs = nullptr;
   /* FSP_FSCTL_DISK_DEVICE_NAME expands to "WinFsp.Disk" (narrow).
    *  Use the wide literal directly for FspFileSystemCreate. */
-  NTSTATUS st = ::FspFileSystemCreate(L"WinFsp.Disk",
+  NTSTATUS st = ::FspFileSystemCreate(const_cast<PWSTR>(L"WinFsp.Disk"),
                                       &p, &g_kWdlFsInterface, &fs);
   if (st != STATUS_SUCCESS) { DavRuntimeDestroy(rt); return false; }
 

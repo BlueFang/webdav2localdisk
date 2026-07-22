@@ -260,7 +260,7 @@ bool Http::ReadBin(void *dst, uint32_t want, uint32_t *got) {
   *got = 0; DWORD a = 0;
   while (*got < want &&
          ::WinHttpQueryDataAvailable(req_, &a) && a > 0) {
-    DWORD take = (std::min)((DWORD)(want - *got), a);
+    DWORD take = a < want - *got ? a : (DWORD)(want - *got);
     DWORD r = 0;
     if (!::WinHttpReadData(req_, (BYTE*)dst + *got, take, &r)) break;
     *got += r; if (r == 0) break;
