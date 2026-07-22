@@ -28,6 +28,24 @@ typedef NTSTATUS *PNTSTATUS;
 #include <wincrypt.h>
 #include <winfsp/winfsp.h>
 
+/* NT file information structures not exposed by user-mode winternl.h
+ * but needed by WinFsp file-system callbacks. */
+#ifndef FileRenameInformation
+#define FileRenameInformation 10
+typedef struct _FILE_RENAME_INFORMATION {
+  BOOLEAN ReplaceIfExists;
+  HANDLE  RootDirectory;
+  ULONG   FileNameLength;
+  WCHAR   FileName[1];
+} FILE_RENAME_INFORMATION, *PFILE_RENAME_INFORMATION;
+#endif
+#ifndef FileDispositionInformation
+#define FileDispositionInformation 13
+typedef struct _FILE_DISPOSITION_INFORMATION {
+  BOOLEAN DeleteFile;
+} FILE_DISPOSITION_INFORMATION, *PFILE_DISPOSITION_INFORMATION;
+#endif
+
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -383,7 +401,7 @@ struct FileHandle {
 /*  Internal helpers (operate on DavRuntime)                              */
 /* ===================================================================== */
 static DavRuntime* R(FSP_FILE_SYSTEM *fs) {
-  return static_cast<DavRuntime*>(FspFileSystemGetUserContext(fs));
+  return static_cast<DavRuntime*>(fs->UserContext);
 }
 
 /* Fetch the PROPFIND for <rel> and cache files. Returns STATUS. */
