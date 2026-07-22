@@ -68,7 +68,7 @@ jobs:
           $incDir = "$env:RUNNER_TEMP\winfsp_inc\winfsp"
           mkdir $incDir -Force
           $base = "https://raw.githubusercontent.com/winfsp/winfsp/v2.1/inc/winfsp"
-          @("winfsp.h", "winfsp_fsctl.h", "launch.h") | ForEach-Object {
+          @("winfsp.h", "fsctl.h") | ForEach-Object {
             Invoke-WebRequest "$base/$_" -OutFile "$incDir\$_"
           }
           Write-Host "Headers downloaded to $incDir"

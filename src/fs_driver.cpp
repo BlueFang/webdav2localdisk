@@ -21,7 +21,7 @@
 #include <ntstatus.h>
 #include <strsafe.h>
 #include <winfsp/winfsp.h>
-#include <winfsp/winfsp_fsctl.h>
+#include <winfsp/fsctl.h>
 
 #include "fs.h"
 #include "webdav_client.h"
