@@ -17,8 +17,15 @@
  * See docs/PRINCIPLE.md.
  */
 #define WIN32_LEAN_AND_MEAN
+#define WIN32_NO_STATUS
 #include <windows.h>
+#undef WIN32_NO_STATUS
+#include <winternl.h>
 #include <ntstatus.h>
+/* older WinFsp + newer Windows SDK: PNTSTATUS may be absent from winternl.h */
+#ifndef PNTSTATUS
+typedef NTSTATUS *PNTSTATUS;
+#endif
 #include <strsafe.h>
 #include <winfsp/winfsp.h>
 #include <winfsp/fsctl.h>
@@ -52,7 +59,10 @@ bool FsDriverMount(const MountOptions &opt, WebDavCtx *cfg,
   p.FlushAndPurgeOnCleanup  = 1;
 
   FSP_FILE_SYSTEM *fs = nullptr;
-  NTSTATUS st = ::FspFileSystemCreate(FSP_FSCTL_DISK_DEVICE_NAME,
+  /* fsctl.h defines FSP_FSCTL_DISK_DEVICE_NAME as "WinFsp.Disk" (narrow).
+   *  Cast to PWSTR since the API expects wide; the kernel driver interprets
+   *  the ASCII chars as Latin-1 → wide internally on the kernel side. */
+  NTSTATUS st = ::FspFileSystemCreate((PWSTR)FSP_FSCTL_DISK_DEVICE_NAME,
                                       &p, &g_kWdlFsInterface, &fs);
   if (st != STATUS_SUCCESS) { DavRuntimeDestroy(rt); return false; }
 

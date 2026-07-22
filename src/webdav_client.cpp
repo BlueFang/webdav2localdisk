@@ -15,7 +15,14 @@
  * directory cache but no global lock beyond that.
  */
 #define WIN32_LEAN_AND_MEAN
+#define WIN32_NO_STATUS
 #include <windows.h>
+#undef WIN32_NO_STATUS
+#include <winternl.h>
+#include <ntstatus.h>
+#ifndef PNTSTATUS
+typedef NTSTATUS *PNTSTATUS;
+#endif
 #include <winhttp.h>
 #include <wincrypt.h>
 #include <winfsp/winfsp.h>
