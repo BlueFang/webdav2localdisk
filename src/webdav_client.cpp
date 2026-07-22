@@ -310,8 +310,8 @@ static void ParsePropfind(const std::string &xml, const std::string &parent,
                           DirCache &dc) {
   std::vector<WebDavFile> dl;
   std::string cur_href, cur_disp;
-  WebDavFile cur{}; enum { OUT, IN_RESPONSE, IN_HREF, IN_DISPLAYNAME,
-    IN_SIZE, IN_MODIFIED, IN_RESOURCETYPE, IN_COLLECTION } st = OUT;
+  WebDavFile cur{}; enum { S_OUT, IN_RESPONSE, IN_HREF, IN_DISPLAYNAME,
+    IN_SIZE, IN_MODIFIED, IN_RESOURCETYPE, IN_COLLECTION } st = S_OUT;
   size_t p = 0; XmlEi ei;
   while (true) {
     ei = xml_next(xml, p);
@@ -340,7 +340,7 @@ static void ParsePropfind(const std::string &xml, const std::string &parent,
           if (slash != std::string::npos) leaf = leaf.substr(slash + 1);
           if (!leaf.empty()) dl.push_back(cur);
         }
-        st = OUT;
+        st = S_OUT;
       } else if (ei.local == "collection")  { cur.is_dir = true;  st = IN_RESOURCETYPE; }
       else if (ei.local == "resourcetype")  { st = IN_RESPONSE; }
       else if (st == IN_HREF)            { cur_href = inner; st = IN_RESPONSE; }
