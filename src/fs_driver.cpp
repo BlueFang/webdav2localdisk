@@ -60,10 +60,9 @@ bool FsDriverMount(const MountOptions &opt, WebDavCtx *cfg,
   p.FlushAndPurgeOnCleanup  = 1;
 
   FSP_FILE_SYSTEM *fs = nullptr;
-  /* fsctl.h defines FSP_FSCTL_DISK_DEVICE_NAME as "WinFsp.Disk" (narrow).
-   *  Cast to PWSTR since the API expects wide; the kernel driver interprets
-   *  the ASCII chars as Latin-1 → wide internally on the kernel side. */
-  NTSTATUS st = ::FspFileSystemCreate((PWSTR)FSP_FSCTL_DISK_DEVICE_NAME,
+  /* FSP_FSCTL_DISK_DEVICE_NAME expands to "WinFsp.Disk" (narrow).
+   *  Use the wide literal directly for FspFileSystemCreate. */
+  NTSTATUS st = ::FspFileSystemCreate(L"WinFsp.Disk",
                                       &p, &g_kWdlFsInterface, &fs);
   if (st != STATUS_SUCCESS) { DavRuntimeDestroy(rt); return false; }
 
